@@ -468,6 +468,7 @@ fn codex_service_tier(value: &str) -> Option<CodexServiceTier> {
         // (Codex Desktop writes "standard"), not on the CLI version.
         "default" | "standard" => Some(CodexServiceTier::Standard),
         "fast" | "priority" => Some(CodexServiceTier::Fast),
+        "flex" => Some(CodexServiceTier::Flex),
         _ => None,
     }
 }
@@ -1112,7 +1113,7 @@ mod tests {
             ("default", Some(CodexServiceTier::Standard)),
             ("priority", Some(CodexServiceTier::Fast)),
             ("fast", Some(CodexServiceTier::Fast)),
-            ("flex", None),
+            ("flex", Some(CodexServiceTier::Flex)),
             ("", None),
         ] {
             assert_eq!(

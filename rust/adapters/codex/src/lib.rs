@@ -598,6 +598,94 @@ mod tests {
     }
 
     #[test]
+    fn prices_recorded_flex_usage_at_flex_rate() {
+        let mut pricing = PricingMap::default();
+        pricing.load_json(
+            r#"{
+                "gpt-test": {
+                    "input_cost_per_token": 0.000001,
+                    "output_cost_per_token": 0.000002,
+                    "provider_specific_entry": { "flex": 0.5 }
+                }
+            }"#,
+        );
+        let usage = CodexModelUsage {
+            input_tokens: 20,
+            total_tokens: 20,
+            recorded_flex_usage: CodexUsageBucket {
+                input_tokens: 20,
+                ..CodexUsageBucket::default()
+            },
+            ..CodexModelUsage::default()
+        };
+
+        let cost = calculate_codex_model_cost("gpt-test", &usage, &pricing, CodexSpeed::Auto);
+
+        assert!((cost - 10e-6).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn prices_mixed_recorded_and_unclassified_service_tiers_independently() {
+        let mut pricing = PricingMap::default();
+        pricing.load_json(
+            r#"{
+                "gpt-test": {
+                    "input_cost_per_token": 0.000001,
+                    "output_cost_per_token": 0.000002,
+                    "provider_specific_entry": { "fast": 2, "flex": 0.5 }
+                }
+            }"#,
+        );
+        let usage = CodexModelUsage {
+            input_tokens: 40,
+            total_tokens: 40,
+            recorded_standard_usage: CodexUsageBucket {
+                input_tokens: 10,
+                ..CodexUsageBucket::default()
+            },
+            recorded_flex_usage: CodexUsageBucket {
+                input_tokens: 10,
+                ..CodexUsageBucket::default()
+            },
+            recorded_fast_usage: CodexUsageBucket {
+                input_tokens: 10,
+                ..CodexUsageBucket::default()
+            },
+            ..CodexModelUsage::default()
+        };
+
+        let auto_standard = calculate_codex_model_cost(
+            "gpt-test",
+            &usage,
+            &pricing,
+            CodexSpeedPolicy::Auto(CodexServiceTier::Standard),
+        );
+        let auto_flex = calculate_codex_model_cost(
+            "gpt-test",
+            &usage,
+            &pricing,
+            CodexSpeedPolicy::Auto(CodexServiceTier::Flex),
+        );
+        let auto_fast = calculate_codex_model_cost(
+            "gpt-test",
+            &usage,
+            &pricing,
+            CodexSpeedPolicy::Auto(CodexServiceTier::Fast),
+        );
+        let forced_flex = calculate_codex_model_cost(
+            "gpt-test",
+            &usage,
+            &pricing,
+            CodexSpeedPolicy::Forced(CodexServiceTier::Flex),
+        );
+
+        assert!((auto_standard - 45e-6).abs() < f64::EPSILON);
+        assert!((auto_flex - 40e-6).abs() < f64::EPSILON);
+        assert!((auto_fast - 55e-6).abs() < f64::EPSILON);
+        assert!((forced_flex - 20e-6).abs() < f64::EPSILON);
+    }
+
+    #[test]
     fn config_fallback_applies_only_to_unclassified_usage() {
         let mut pricing = PricingMap::default();
         pricing.load_json(

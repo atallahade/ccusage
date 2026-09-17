@@ -325,7 +325,7 @@ mod tests {
                 token_count("2026-07-22T00:00:01.000Z", 10),
                 service_tier("2026-07-22T00:00:02.000Z", "priority"),
                 token_count("2026-07-22T00:00:03.000Z", 20),
-                service_tier("2026-07-22T00:00:04.000Z", "default"),
+                service_tier("2026-07-22T00:00:04.000Z", "flex"),
                 token_count("2026-07-22T00:00:05.000Z", 30),
                 service_tier("2026-07-22T00:00:06.000Z", "fast"),
                 token_count("2026-07-22T00:00:07.000Z", 40),
@@ -341,10 +341,7 @@ mod tests {
             Some(crate::CodexServiceTier::Standard)
         );
         assert_eq!(events[1].service_tier, Some(crate::CodexServiceTier::Fast));
-        assert_eq!(
-            events[2].service_tier,
-            Some(crate::CodexServiceTier::Standard)
-        );
+        assert_eq!(events[2].service_tier, Some(crate::CodexServiceTier::Flex));
         assert_eq!(events[3].service_tier, Some(crate::CodexServiceTier::Fast));
     }
 
@@ -394,7 +391,7 @@ mod tests {
                 // Recognized tier again, then an unrecognized one that clears it.
                 settings("2026-07-22T00:00:04.000Z", json!({"service_tier": "standard"})),
                 token_count("2026-07-22T00:00:05.000Z", 30),
-                settings("2026-07-22T00:00:06.000Z", json!({"service_tier": "flex"})),
+                settings("2026-07-22T00:00:06.000Z", json!({"service_tier": "unknown"})),
                 token_count("2026-07-22T00:00:07.000Z", 40),
             ]
             .join("\n"),
@@ -453,7 +450,7 @@ mod tests {
                     "type": "event_msg",
                     "payload": {
                         "type": "thread_settings_applied",
-                        "thread_settings": { "service_tier": "flex" },
+                        "thread_settings": { "service_tier": "unknown" },
                     },
                 })
                 .to_string(),
