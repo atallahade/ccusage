@@ -950,22 +950,31 @@ impl SpeedMultiplierOverrides {
         if let Some(multiplier) = pricing_alias(model).and_then(|alias| self.exact.get(alias)) {
             return Some(*multiplier);
         }
-        model.split(['/', ':']).find_map(|part| {
-            let base = model_without_date_suffix(part);
-            self.exact
-                .get(part)
-                .or_else(|| self.exact.get(base))
-                .copied()
-                .or_else(|| pricing_alias(base).and_then(|alias| self.exact.get(alias).copied()))
-                .or_else(|| {
-                    let normalized = part.replace(['.', '@'], "-");
-                    self.normalized_prefix
-                        .iter()
-                        .find_map(|(base, multiplier)| {
-                            matches_model_suffix(&normalized, base).then_some(*multiplier)
-                        })
-                })
-        })
+        model
+            .split(['/', ':'])
+            .flat_map(|part| {
+                // Keep decimal model versions intact while trying dotted provider suffixes.
+                std::iter::once(part)
+                    .chain(part.match_indices('.').map(|(index, _)| &part[index + 1..]))
+            })
+            .find_map(|part| {
+                let base = model_without_date_suffix(part);
+                self.exact
+                    .get(part)
+                    .or_else(|| self.exact.get(base))
+                    .copied()
+                    .or_else(|| {
+                        pricing_alias(base).and_then(|alias| self.exact.get(alias).copied())
+                    })
+                    .or_else(|| {
+                        let normalized = part.replace(['.', '@'], "-");
+                        self.normalized_prefix
+                            .iter()
+                            .find_map(|(base, multiplier)| {
+                                matches_model_suffix(&normalized, base).then_some(*multiplier)
+                            })
+                    })
+            })
     }
 }
 
@@ -4815,10 +4824,34 @@ mod tests {
     }
 
     #[test]
-    fn applies_fast_multiplier_to_qualified_flat_models_dev_model() {
+    fn applies_speed_multipliers_to_qualified_flat_models_dev_models() {
         let mut pricing = PricingMap::default();
         let models_dev_json = r#"{
                 "openai/gpt-6-astra": {
+                    "cost": {
+                        "input": 10.0,
+                        "output": 50.0
+                    }
+                },
+                "openai.gpt-5.4": {
+                    "cost": {
+                        "input": 10.0,
+                        "output": 50.0
+                    }
+                },
+                "global.openai.gpt-6.1-sol": {
+                    "cost": {
+                        "input": 10.0,
+                        "output": 50.0
+                    }
+                },
+                "global.openai.gpt-5.4-mini-2026-03-17": {
+                    "cost": {
+                        "input": 10.0,
+                        "output": 50.0
+                    }
+                },
+                "openai.gpt-5.4-mini-extra": {
                     "cost": {
                         "input": 10.0,
                         "output": 50.0
@@ -4828,12 +4861,20 @@ mod tests {
 
         assert_eq!(
             pricing.load_models_dev_json_missing(models_dev_json),
-            Some(1)
+            Some(5)
         );
 
-        let model = pricing.find_exact("openai/gpt-6-astra").unwrap();
-        assert_eq!(model.fast_multiplier, 2.0);
-        assert_eq!(model.flex_multiplier, 0.5);
+        for (name, fast, flex) in [
+            ("openai/gpt-6-astra", 2.0, 0.5),
+            ("openai.gpt-5.4", 2.0, 0.5),
+            ("global.openai.gpt-6.1-sol", 1.0, 0.5),
+            ("global.openai.gpt-5.4-mini-2026-03-17", 1.0, 0.5),
+            ("openai.gpt-5.4-mini-extra", 1.0, 1.0),
+        ] {
+            let model = pricing.find_exact(name).unwrap();
+            assert_eq!(model.fast_multiplier, fast, "{name}");
+            assert_eq!(model.flex_multiplier, flex, "{name}");
+        }
     }
 
     #[test]
@@ -5415,6 +5456,36 @@ mod tests {
             "o4-mini",
         ] {
             assert_eq!(pricing.find(model).unwrap().flex_multiplier, 0.5, "{model}");
+        }
+    }
+
+    #[test]
+    fn dated_openai_models_inherit_published_fast_multipliers() {
+        let mut pricing = PricingMap::default();
+
+        for (model, expected) in [
+            ("gpt-6-astra-2026-09-24", 2.0),
+            ("gpt-5.4-2026-03-05", 2.0),
+            ("openai/gpt-5.6-sol-20261001", 2.0),
+            ("gpt-5.6-terra-2026-10-01", 2.0),
+            ("gpt-5.6-luna-2026-10-01", 2.0),
+            ("global.openai.gpt-5.5-2026-04-23", 2.5),
+            ("gpt-5.2-codex-2026-01-14", 1.0),
+            ("gpt-5.4-unsupported", 1.0),
+        ] {
+            let json = serde_json::json!({
+                model: {
+                    "input_cost_per_token": 0.000001,
+                    "output_cost_per_token": 0.000002,
+                },
+            })
+            .to_string();
+            assert_eq!(pricing.load_json(&json), 1);
+            assert_eq!(
+                pricing.find_exact(model).unwrap().fast_multiplier,
+                expected,
+                "{model}"
+            );
         }
     }
 
